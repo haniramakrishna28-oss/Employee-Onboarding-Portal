@@ -1,0 +1,231 @@
+// Prisma Schema for Employee Onboarding Portal
+// Database: SQLite
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Role {
+  id          String   @id @default(uuid())
+  name        String   @unique // ADMIN, HR, MANAGER, EMPLOYEE
+  description String?
+  permissions String?  // JSON stringified list of permissions
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  users       User[]
+}
+
+model User {
+  id               String       @id @default(uuid())
+  email            String       @unique
+  passwordHash     String
+  roleId           String?
+  role             String       @default("EMPLOYEE") // ADMIN, HR, MANAGER, EMPLOYEE
+  status           String       @default("ACTIVE")   // ACTIVE, INACTIVE, SUSPENDED
+  resetToken       String?
+  resetTokenExpiry DateTime?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  roleRel          Role?        @relation(fields: [roleId], references: [id])
+  employee         Employee?
+  assignedTasks    Task[]       @relation("AssignedTasks")
+  createdTasks     Task[]       @relation("CreatedTasks")
+  taskComments     TaskComment[]
+  approvals        Approval[]
+  notifications    Notification[]
+  auditLogs        AuditLog[]
+  verifiedDocs     Document[]   @relation("VerifiedDocuments")
+}
+
+model Department {
+  id          String       @id @default(uuid())
+  name        String       @unique
+  code        String       @unique
+  description String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  employees   Employee[]
+  templates   OnboardingTemplate[]
+}
+
+model Employee {
+  id                 String       @id @default(uuid())
+  userId             String       @unique
+  user               User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  employeeCode       String       @unique
+  firstName          String
+  lastName           String
+  phone              String?
+  personalEmail      String?
+  dateOfBirth        DateTime?
+  gender             String?      // MALE, FEMALE, OTHER, PREFER_NOT_TO_SAY
+  maritalStatus      String?      // SINGLE, MARRIED, OTHER
+  bloodGroup         String?      // A+, A-, B+, B-, O+, O-, AB+, AB-
+  address            String?      // JSON: { street, city, state, postalCode, country }
+  emergencyContact   String?      // JSON: { name, relation, phone, altPhone }
+  education          String?      // JSON: Array of { degree, institution, year, grade }
+  previousExperience String?      // JSON: Array of { company, designation, from, to }
+  joiningDate        DateTime?
+  designation        String?
+  departmentId       String?
+  department         Department?  @relation(fields: [departmentId], references: [id])
+  reportingManagerId String?
+  reportingManager   Employee?    @relation("ReportingManager", fields: [reportingManagerId], references: [id])
+  directReports      Employee[]   @relation("ReportingManager")
+  onboardingStatus   String       @default("NOT_STARTED") // NOT_STARTED, IN_PROGRESS, PENDING_APPROVAL, COMPLETED
+  progressPercentage Float        @default(0.0)
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  onboardings        Onboarding[]
+  documents          Document[]
+}
+
+model OnboardingTemplate {
+  id               String       @id @default(uuid())
+  title            String
+  description      String?
+  departmentId     String?
+  department       Department?  @relation(fields: [departmentId], references: [id])
+  isDefault        Boolean      @default(false)
+  defaultChecklist String       // JSON string array of checklist template items
+  defaultTasks     String       // JSON string array of task template items
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  onboardings      Onboarding[]
+}
+
+model Onboarding {
+  id              String             @id @default(uuid())
+  employeeId      String
+  employee        Employee           @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  templateId      String?
+  template        OnboardingTemplate? @relation(fields: [templateId], references: [id])
+  managerId       String?
+  joiningDate     DateTime
+  deadline        DateTime
+  status          String             @default("IN_PROGRESS") // IN_PROGRESS, SUBMITTED, APPROVED, COMPLETED
+  currentStage    String             @default("DOCUMENT_UPLOAD") // DOCUMENT_UPLOAD, HR_REVIEW, MANAGER_APPROVAL, HR_FINAL_APPROVAL, COMPLETED
+  overallProgress Float              @default(0.0)
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  documents       Document[]
+  checklistItems  ChecklistItem[]
+  tasks           Task[]
+  approvals       Approval[]
+}
+
+model Document {
+  id               String      @id @default(uuid())
+  onboardingId     String?
+  onboarding       Onboarding? @relation(fields: [onboardingId], references: [id], onDelete: Cascade)
+  employeeId       String
+  employee         Employee    @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  category         String      // RESUME, ID_PROOF, ADDRESS_PROOF, EDUCATION_CERT, PREV_EMPLOYMENT, BANK_DETAILS, OTHER
+  originalFilename String
+  storedFilename   String
+  filePath         String
+  fileSize         Int
+  mimeType         String
+  status           String      @default("PENDING") // PENDING, UPLOADED, UNDER_REVIEW, APPROVED, REJECTED
+  rejectionReason  String?
+  verifiedById     String?
+  verifiedBy       User?       @relation("VerifiedDocuments", fields: [verifiedById], references: [id])
+  verifiedAt       DateTime?
+  uploadedAt       DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+}
+
+model ChecklistItem {
+  id            String      @id @default(uuid())
+  onboardingId  String
+  onboarding    Onboarding  @relation(fields: [onboardingId], references: [id], onDelete: Cascade)
+  title         String
+  description   String?
+  category      String      // DOCUMENT_SUBMISSION, HR_FORM, BANK_DETAILS, IT_SETUP, LAPTOP, ID_CARD, ORIENTATION, POLICY_ACK
+  status        String      @default("PENDING") // PENDING, IN_PROGRESS, COMPLETED
+  assignedRole  String      @default("EMPLOYEE") // EMPLOYEE, HR, IT, MANAGER
+  completedById String?
+  completedAt   DateTime?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+}
+
+model Task {
+  id           String        @id @default(uuid())
+  onboardingId String
+  onboarding   Onboarding    @relation(fields: [onboardingId], references: [id], onDelete: Cascade)
+  title        String
+  description  String?
+  priority     String        @default("MEDIUM") // LOW, MEDIUM, HIGH, URGENT
+  deadline     DateTime?
+  status       String        @default("TODO")   // TODO, IN_PROGRESS, COMPLETED
+  assignedToId String?
+  assignedTo   User?         @relation("AssignedTasks", fields: [assignedToId], references: [id])
+  createdById  String?
+  createdBy    User?         @relation("CreatedTasks", fields: [createdById], references: [id])
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  comments     TaskComment[]
+}
+
+model TaskComment {
+  id             String   @id @default(uuid())
+  taskId         String
+  task           Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User     @relation(fields: [userId], references: [id])
+  message        String
+  attachmentPath String?
+  createdAt      DateTime @default(now())
+}
+
+model Approval {
+  id           String      @id @default(uuid())
+  onboardingId String
+  onboarding   Onboarding  @relation(fields: [onboardingId], references: [id], onDelete: Cascade)
+  stage        String      // HR_INITIAL_REVIEW, MANAGER_APPROVAL, HR_FINAL_APPROVAL
+  stepNumber   Int
+  approverId   String?
+  approver     User?       @relation(fields: [approverId], references: [id])
+  approverRole String      // HR, MANAGER, ADMIN
+  status       String      @default("PENDING") // PENDING, APPROVED, REJECTED
+  comments     String?
+  approvedAt   DateTime?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  message   String
+  type      String   @default("INFO") // INFO, SUCCESS, WARNING, ACTION_REQUIRED
+  isRead    Boolean  @default(false)
+  link      String?
+  createdAt DateTime @default(now())
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action    String   // USER_LOGIN, DOCUMENT_UPLOADED, DOCUMENT_APPROVED, STATUS_CHANGED, etc.
+  entity    String   // USER, EMPLOYEE, DOCUMENT, ONBOARDING, TASK, APPROVAL
+  entityId  String?
+  details   String?  // JSON string of change details or metadata
+  ipAddress String?
+  createdAt DateTime @default(now())
+}
