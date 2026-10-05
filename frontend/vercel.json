@@ -1,0 +1,16 @@
+{
+    "rewrites": [
+        {
+            "source": "/api/:path*",
+            "destination": "https://employee-onboarding-portal-2ar1.onrender.com/api/:path*"
+        },
+        {
+            "source": "/uploads/:path*",
+            "destination": "https://employee-onboarding-portal-2ar1.onrender.com/uploads/:path*"
+        },
+        {
+            "source": "/(.*)",
+            "destination": "/index.html"
+        }
+    ]
+}
