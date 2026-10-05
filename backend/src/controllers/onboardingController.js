@@ -73,13 +73,16 @@ async function getHROnboardings(req, res) {
       where.employee = { departmentId };
     }
 
-    if (search) {
-      where.OR = [
-        { employee: { firstName: { contains: search } } },
-        { employee: { lastName: { contains: search } } },
-        { employee: { employeeCode: { contains: search } } },
-        { employee: { user: { email: { contains: search } } } },
-      ];
+    if (search && search.trim()) {
+      const terms = search.trim().split(/\s+/).filter(Boolean);
+      where.AND = terms.map(term => ({
+        OR: [
+          { employee: { firstName: { contains: term } } },
+          { employee: { lastName: { contains: term } } },
+          { employee: { employeeCode: { contains: term } } },
+          { employee: { user: { email: { contains: term } } } },
+        ]
+      }));
     }
 
     // Determine sorting
@@ -370,11 +373,144 @@ async function getAvailableEmployees(req, res) {
   }
 }
 
+// 7. Get full Onboarding details by ID
+async function getOnboardingById(req, res) {
+  try {
+    const { id } = req.params;
+    const onboarding = await prisma.onboarding.findUnique({
+      where: { id },
+      include: {
+        employee: {
+          include: {
+            department: true,
+            reportingManager: {
+              select: { id: true, firstName: true, lastName: true, employeeCode: true }
+            },
+            user: { select: { email: true, status: true } }
+          }
+        },
+        template: true,
+        documents: {
+          orderBy: { uploadedAt: 'desc' },
+          include: { verifiedBy: { select: { email: true } } }
+        },
+        checklistItems: {
+          orderBy: { createdAt: 'asc' }
+        },
+        tasks: {
+          orderBy: { deadline: 'asc' },
+          include: { comments: { include: { user: { select: { email: true, employee: { select: { firstName: true, lastName: true } } } } } } }
+        },
+        approvals: {
+          orderBy: { stepNumber: 'asc' }
+        }
+      }
+    });
+
+    if (!onboarding) {
+      return res.status(404).json({ success: false, message: 'Onboarding record not found.' });
+    }
+
+    return res.status(200).json({ success: true, onboarding });
+  } catch (error) {
+    console.error('Error fetching onboarding details:', error);
+    return res.status(500).json({ success: false, message: 'Failed to fetch onboarding details.' });
+  }
+}
+
+// 8. Update / Advance Onboarding Stage or Approval
+async function updateOnboardingStage(req, res) {
+  try {
+    const { id } = req.params;
+    const { stage, status: newStatus, comments } = req.body;
+
+    const onboarding = await prisma.onboarding.findUnique({
+      where: { id },
+      include: { employee: true, approvals: true }
+    });
+
+    if (!onboarding) {
+      return res.status(404).json({ success: false, message: 'Onboarding record not found.' });
+    }
+
+    const updates = {};
+    if (stage) updates.currentStage = stage;
+    if (newStatus) updates.status = newStatus;
+
+    if (stage === 'COMPLETED' || newStatus === 'COMPLETED') {
+      updates.status = 'COMPLETED';
+      updates.currentStage = 'COMPLETED';
+      updates.overallProgress = 100;
+
+      // Update employee
+      await prisma.employee.update({
+        where: { id: onboarding.employeeId },
+        data: { onboardingStatus: 'COMPLETED', progressPercentage: 100 }
+      });
+    }
+
+    // If an approval stage matches the current user's role (HR or MANAGER), mark that approval approved
+    const pendingApproval = onboarding.approvals.find(
+      a => a.status === 'PENDING' && (
+        (req.user.role === 'HR' && a.approverRole === 'HR') ||
+        (req.user.role === 'MANAGER' && a.approverRole === 'MANAGER') ||
+        req.user.role === 'ADMIN'
+      )
+    );
+
+    if (pendingApproval) {
+      await prisma.approval.update({
+        where: { id: pendingApproval.id },
+        data: {
+          status: 'APPROVED',
+          approvedById: req.user.id,
+          approvedAt: new Date(),
+          comments: comments || ('Approved by ' + req.user.role)
+        }
+      });
+    }
+
+    const updated = await prisma.onboarding.update({
+      where: { id },
+      data: updates,
+      include: {
+        employee: { include: { department: true, reportingManager: true, user: true } },
+        documents: true,
+        checklistItems: true,
+        tasks: true,
+        approvals: true
+      }
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'ONBOARDING_STAGE_UPDATED',
+        entity: 'ONBOARDING',
+        entityId: id,
+        details: JSON.stringify({ stage: updated.currentStage, status: updated.status, comments }),
+        ipAddress: req.ip
+      }
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Onboarding stage updated successfully!',
+      onboarding: updated
+    });
+  } catch (error) {
+    console.error('Error updating onboarding stage:', error);
+    return res.status(500).json({ success: false, message: 'Failed to update onboarding stage.' });
+  }
+}
+
 module.exports = {
   getHRStats,
   getHROnboardings,
   createOnboarding,
   getTemplates,
   getManagers,
-  getAvailableEmployees
+  getAvailableEmployees,
+  getOnboardingById,
+  updateOnboardingStage
 };

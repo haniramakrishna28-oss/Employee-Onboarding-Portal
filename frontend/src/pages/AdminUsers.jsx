@@ -37,15 +37,21 @@ export default function AdminUsers() {
   const [modalSubmitting, setModalSubmitting] = useState(false);
 
   useEffect(() => {
-    fetchUsers();
-    fetchDepartments();
-  }, [roleFilter, statusFilter]);
+    const timer = setTimeout(() => {
+      fetchUsers();
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [search, roleFilter, statusFilter]);
 
-  const fetchUsers = async () => {
+  useEffect(() => {
+    fetchDepartments();
+  }, []);
+
+  const fetchUsers = async (overrideSearch = search) => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
-      if (search) params.append('search', search);
+      if (overrideSearch && overrideSearch.trim()) params.append('search', overrideSearch.trim());
       if (roleFilter) params.append('role', roleFilter);
       if (statusFilter) params.append('status', statusFilter);
 
@@ -174,9 +180,19 @@ export default function AdminUsers() {
             placeholder="Search by name, email, code..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="w-full pl-9 pr-8 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
           />
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch('')}
+              className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 p-0.5"
+              title="Clear search"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
         </form>
 
         <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">

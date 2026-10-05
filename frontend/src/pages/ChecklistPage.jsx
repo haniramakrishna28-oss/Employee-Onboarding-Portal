@@ -39,10 +39,7 @@ export default function ChecklistPage() {
   };
 
   const handleStatusToggle = async (item) => {
-    let nextStatus = 'IN_PROGRESS';
-    if (item.status === 'PENDING') nextStatus = 'IN_PROGRESS';
-    else if (item.status === 'IN_PROGRESS') nextStatus = 'COMPLETED';
-    else if (item.status === 'COMPLETED') nextStatus = 'PENDING';
+    const nextStatus = item.status === 'COMPLETED' ? 'PENDING' : 'COMPLETED';
 
     setUpdatingId(item.id);
     try {

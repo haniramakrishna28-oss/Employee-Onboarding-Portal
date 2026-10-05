@@ -9,13 +9,16 @@ async function getUsers(req, res) {
     const where = {};
     if (role) where.role = role;
     if (status) where.status = status;
-    if (search) {
-      where.OR = [
-        { email: { contains: search } },
-        { employee: { firstName: { contains: search } } },
-        { employee: { lastName: { contains: search } } },
-        { employee: { employeeCode: { contains: search } } },
-      ];
+    if (search && search.trim()) {
+      const terms = search.trim().split(/\s+/).filter(Boolean);
+      where.AND = terms.map(term => ({
+        OR: [
+          { email: { contains: term } },
+          { employee: { firstName: { contains: term } } },
+          { employee: { lastName: { contains: term } } },
+          { employee: { employeeCode: { contains: term } } },
+        ]
+      }));
     }
 
     const users = await prisma.user.findMany({
