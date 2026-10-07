@@ -18,6 +18,8 @@ router.put('/users/:id/status', adminController.updateUserStatus);
 
 // Departments modification
 router.post('/departments', adminController.createDepartment);
+router.put('/departments/:id', adminController.updateDepartment);
+router.delete('/departments/:id', adminController.deleteDepartment);
 
 // Audit Logs
 router.get('/audit-logs', adminController.getAuditLogs);

@@ -275,6 +275,109 @@ async function createDepartment(req, res) {
   }
 }
 
+async function updateDepartment(req, res) {
+  try {
+    const { id } = req.params;
+    const { name, code, description } = req.body;
+
+    const existing = await prisma.department.findUnique({ where: { id } });
+    if (!existing) {
+      return res.status(404).json({ success: false, message: 'Department not found.' });
+    }
+
+    const data = {};
+    if (name) data.name = name.trim();
+    if (code) data.code = code.toUpperCase().trim();
+    if (description !== undefined) data.description = description ? description.trim() : null;
+
+    const updated = await prisma.department.update({
+      where: { id },
+      data
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'DEPARTMENT_UPDATED',
+        entity: 'DEPARTMENT',
+        entityId: id,
+        details: JSON.stringify({ name: updated.name, code: updated.code }),
+        ipAddress: req.ip
+      }
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Department updated successfully.',
+      department: updated
+    });
+  } catch (error) {
+    if (error.code === 'P2002') {
+      return res.status(409).json({ success: false, message: 'A department with this name or code already exists.' });
+    }
+    console.error('Error updating department:', error);
+    return res.status(500).json({ success: false, message: 'Failed to update department.' });
+  }
+}
+
+async function deleteDepartment(req, res) {
+  try {
+    const { id } = req.params;
+
+    const dept = await prisma.department.findUnique({
+      where: { id },
+      include: {
+        _count: {
+          select: { employees: true, templates: true }
+        }
+      }
+    });
+
+    if (!dept) {
+      return res.status(404).json({ success: false, message: 'Department not found.' });
+    }
+
+    // AC: Deleted departments with assigned employees cannot be hard-deleted; system displays an explanatory warning.
+    if (dept._count.employees > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot delete department "${dept.name}" because it currently has ${dept._count.employees} assigned employee(s). Please reassign them first.`
+      });
+    }
+
+    // Disconnect templates referencing this department
+    if (dept._count.templates > 0) {
+      await prisma.onboardingTemplate.updateMany({
+        where: { departmentId: id },
+        data: { departmentId: null }
+      });
+    }
+
+    await prisma.department.delete({
+      where: { id }
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'DEPARTMENT_DELETED',
+        entity: 'DEPARTMENT',
+        entityId: id,
+        details: JSON.stringify({ name: dept.name, code: dept.code }),
+        ipAddress: req.ip
+      }
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: `Department "${dept.name}" (${dept.code}) deleted successfully.`
+    });
+  } catch (error) {
+    console.error('Error deleting department:', error);
+    return res.status(500).json({ success: false, message: 'Failed to delete department.' });
+  }
+}
+
 // 6. Audit Logs
 async function getAuditLogs(req, res) {
   try {
@@ -310,5 +413,7 @@ module.exports = {
   createUser,
   getDepartments,
   createDepartment,
+  updateDepartment,
+  deleteDepartment,
   getAuditLogs
 };
